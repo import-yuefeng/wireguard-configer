@@ -22,6 +22,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var (
+	netInit    *string
+	portInit   *string
+	serverInit *string
+)
+
 // initCmd represents the init command
 var initCmd = &cobra.Command{
 	Use:   "init",
@@ -41,20 +47,28 @@ For example:
 		}
 
 		user := randString.RandStringBytes(8)
-
+		init := initStruct{*netInit, *portInit, *serverInit}
+		au := AddUser{"10.0.0.2", init.serverIP, init.listenPort, user}
 		mkdirServerDir()
 		genServerKeyFunc()
-		genClientKeyFunc(user)
-		genServerConfig()
-
+		au.genClientKeyFunc()
+		init.genServerConfig()
+		au.genClientConfig()
 	},
 }
 
+type initStruct struct {
+	netInterface string
+	listenPort   string
+	serverIP     string
+}
+
 func init() {
+
 	rootCmd.AddCommand(initCmd)
-	netInterface = initCmd.Flags().StringP("interface", "i", "eth0", "net interface name")
-	listenPort = initCmd.Flags().StringP("port", "p", "4096", "wireguard listen port")
-	serverIP = initCmd.Flags().StringP("src", "s", "10.0.0.1", "init wireguard server ip")
+	netInit = initCmd.Flags().StringP("interface", "i", "eth0", "net interface name")
+	portInit = initCmd.Flags().StringP("port", "p", "4096", "wireguard listen port")
+	serverInit = initCmd.Flags().StringP("src", "s", "10.0.0.1", "init wireguard server ip")
 
 	// Here you will define your flags and configuration settings.
 

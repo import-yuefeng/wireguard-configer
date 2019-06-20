@@ -16,12 +16,6 @@ const (
 )
 
 var (
-	netInterface *string
-	listenPort   *string
-	serverIP     *string
-)
-
-var (
 	defaultConfPath  = "/etc/wireguard/wg0.conf"
 	initServerConfig = `
 	echo "
@@ -33,26 +27,31 @@ var (
 	ListenPort = 
 	DNS = 8.8.8.8
 	MTU = 1420 " > /etc/wireguard/wg0.conf`
-	ListenPort    = "ListenPort = "
-	PostUp        = `iptables -A FORWARD -i wg0 -j ACCEPT; iptables -A FORWARD -o wg0 -j ACCEPT; iptables -t nat -A POSTROUTING -o `
-	PostStringEnd = ` -j MASQUERADE`
-	PostDown      = `iptables -D FORWARD -i wg0 -j ACCEPT; iptables -D FORWARD -o wg0 -j ACCEPT; iptables -t nat -D POSTROUTING -o `
+	PostUp   = `iptables -A FORWARD -i wg0 -j ACCEPT; iptables -A FORWARD -o wg0 -j ACCEPT; iptables -t nat -A POSTROUTING -o `
+	PostDown = `iptables -D FORWARD -i wg0 -j ACCEPT; iptables -D FORWARD -o wg0 -j ACCEPT; iptables -t nat -D POSTROUTING -o `
 
 	genClientKey     = `wg genkey | tee /etc/wireguard/Client/client_privatekey | wg pubkey > /etc/wireguard/Client/client_publickey`
 	initClientConfig = `echo "
-	[Interface]
-	  PrivateKey = $(cat client_privatekey)
-	  Address = 10.0.0.2/24
-	  DNS = 8.8.8.8
-	  MTU = 1420
-	
-	[Peer]
-	  PublicKey = $(cat server_publickey)
-	  Endpoint = 1.2.3.4:50814
-	  AllowedIPs = 0.0.0.0/0, ::0/0
-	  PersistentKeepalive = 25 " > client.conf
+[Interface]
+	PrivateKey = $(cat /etc/wireguard/Client/client_privatekey)
+	Address = 10.0.0.2/24
+	DNS = 8.8.8.8
+	MTU = 1420
+
+[Peer]
+	PublicKey = $(cat /etc/wireguard/server_publickey)
+	Endpoint = 1.2.3.4:50814
+	AllowedIPs = 0.0.0.0/0, ::0/0
+	PersistentKeepalive = 25 " > /etc/wireguard/Client/client.conf
 	`
 )
+
+type AddUser struct {
+	userIP   string
+	serverIP string
+	port     string
+	user     string
+}
 
 func pathExists(path string) (bool, error) {
 	_, err := os.Stat(path)
@@ -64,9 +63,10 @@ func pathExists(path string) (bool, error) {
 	}
 	return false, err
 }
-func genClientKeyFunc(clientConf string) (bool, error) {
-	genClientKey = strings.Replace(genClientKey, "client_privatekey", clientConf+"_privatekey", -1)
-	genClientKey = strings.Replace(genClientKey, "client_publickey", clientConf+"_publickey", -1)
+
+func (au *AddUser) genClientKeyFunc() (bool, error) {
+	genClientKey = strings.Replace(genClientKey, "client_privatekey", au.user+"_privatekey", -1)
+	genClientKey = strings.Replace(genClientKey, "client_publickey", au.user+"_publickey", -1)
 
 	runInit := runCommand.CmdInfo{genClientKey, "0", 0}
 	if _, err := runInit.Exec(); err != nil {
@@ -101,20 +101,29 @@ func mkdirServerDir() {
 		return
 	}
 	os.Mkdir(mkdirClientPath, 0777)
-
 }
 
-func genClientConfig() {
+func (au *AddUser) genClientConfig() {
 
+	initClientConfig = strings.Replace(initClientConfig, "10.0.0.2", au.userIP, -1)
+	initClientConfig = strings.Replace(initClientConfig, "client_privatekey", au.user+"_privatekey", -1)
+	initClientConfig = strings.Replace(initClientConfig, "1.2.3.4:50814", au.serverIP+au.port, -1)
+	initClientConfig = strings.Replace(initClientConfig, "client.conf", au.user+".conf", -1)
+	runInit := runCommand.CmdInfo{initClientConfig, "0", 0}
+	if _, err := runInit.Exec(); err != nil {
+		fmt.Printf("%c[1;40;31m%s%c[0m", 0x1B, "[-] ", 0x1B)
+		fmt.Println(err)
+		return
+	}
 }
 
-func genServerConfig() {
+func (init *initStruct) genServerConfig() {
 
-	initServerConfig = strings.Replace(initServerConfig, "Address = ", "Address = "+*serverIP, -1)
-	initServerConfig = strings.Replace(initServerConfig, PostUp, PostUp+*netInterface+PostStringEnd, -1)
-	initServerConfig = strings.Replace(initServerConfig, PostDown, PostDown+*netInterface+PostStringEnd, -1)
-	initServerConfig = strings.Replace(initServerConfig, ListenPort, ListenPort+*listenPort, -1)
-	if *serverIP == "" || *listenPort == "" || *netInterface == "" {
+	initServerConfig = strings.Replace(initServerConfig, "Address = ", "Address = "+init.serverIP, -1)
+	initServerConfig = strings.Replace(initServerConfig, PostUp, PostUp+init.netInterface+" -j MASQUERADE", -1)
+	initServerConfig = strings.Replace(initServerConfig, PostDown, PostDown+init.netInterface+" -j MASQUERADE", -1)
+	initServerConfig = strings.Replace(initServerConfig, "ListenPort = ", "ListenPort = "+init.listenPort, -1)
+	if init.serverIP == "" || init.listenPort == "" || init.netInterface == "" {
 		fmt.Printf("%c[1;40;31m%s%c[0m", 0x1B, "[-] ", 0x1B)
 		fmt.Println("Missing required arguments")
 		return

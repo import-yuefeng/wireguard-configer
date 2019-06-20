@@ -47,6 +47,7 @@ var addCmd = &cobra.Command{
 		if *ip != "" && *user != "" {
 			fmt.Printf("%c[1;40;31m%s%c[0m", 0x1B, "[-] ", 0x1B)
 			fmt.Println("User: " + *user + "\nIP: " + *ip)
+			// au := AddUser{*ip, }
 		}
 	},
 }
